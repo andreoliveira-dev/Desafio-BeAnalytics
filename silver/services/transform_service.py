@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 from silver.ports.input_ports import TransformUseCase
 from silver.ports.output_ports import RawDataReaderPort, CleanDataWriterPort
@@ -23,16 +24,15 @@ class TransformService(TransformUseCase):
         if df.empty:
             raise ValueError("Data quality check failed: No valid records left after dropping nulls.")
 
-        # Convert 'data' column from dd/MM/yyyy to date type
+        # Convert 'data' column from dd/MM/yyyy to datetime64 type
         try:
-            # We convert to datetime, then extract date object
-            df["data"] = pd.to_datetime(df["data"], format="%d/%m/%Y").dt.date
+            df["data"] = pd.to_datetime(df["data"], format="%d/%m/%Y")
         except Exception as e:
             raise ValueError(f"Data quality check failed: Invalid date format in raw data: {str(e)}") from e
 
-        # Convert 'valor' column to numeric
+        # Convert 'valor' column to numeric float64
         try:
-            df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+            df["valor"] = pd.to_numeric(df["valor"], errors="coerce").astype("float64")
             # Drop rows with invalid non-numeric rates
             df = df.dropna(subset=["valor"])
         except Exception as e:
@@ -47,6 +47,14 @@ class TransformService(TransformUseCase):
 
         # Sort chronologically by date
         df = df.sort_values(by="data").reset_index(drop=True)
+
+        # Data Quality Warning Check: Alert if rate is negative or > 1% per day
+        out_of_bounds = df[(df["valor"] < 0.0) | (df["valor"] > 1.0)]
+        if not out_of_bounds.empty:
+            logging.warning(
+                f"Data quality warning: Detected {len(out_of_bounds)} rates outside standard market limits "
+                f"(negative or > 1% per day): {out_of_bounds[['data', 'valor']].to_dict('records')}"
+            )
 
         # 4. Save clean data to Silver Parquet storage
         output_path = self.writer.write_clean_data(df)

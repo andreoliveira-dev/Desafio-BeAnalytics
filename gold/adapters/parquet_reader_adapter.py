@@ -4,7 +4,7 @@ from gold.ports.output_ports import CleanDataReaderPort
 
 
 class ParquetCleanReaderAdapter(CleanDataReaderPort):
-    def __init__(self, file_path: str = "data/silver/selic_clean.parquet"):
+    def __init__(self, file_path: str = "data/silver/selic_cleaned.parquet"):
         self.file_path = file_path
 
     def read_clean_data(self) -> pd.DataFrame:

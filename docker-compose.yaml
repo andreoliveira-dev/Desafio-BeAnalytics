@@ -1,22 +1,70 @@
-version: '3.8'
-
 services:
-  airflow-local:
+  postgres:
+    image: postgres:13
+    container_name: airflow_postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  airflow-webserver:
     image: apache/airflow:2.6.3-python3.10
-    container_name: airflow_selic_challenge
-    command: standalone
+    container_name: airflow_webserver
+    command: webserver
+    user: "${AIRFLOW_UID:-50000}:0"
     ports:
       - "8080:8080"
     environment:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
-      - _PIP_ADDITIONAL_REQUIREMENTS=pandas pyarrow requests
-      - PYTHONPATH=/opt/airflow/workspace
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      - _PIP_ADDITIONAL_REQUIREMENTS=pandas==2.2.0 pyarrow==15.0.0 requests==2.31.0
+      - PYTHONPATH=/opt/airflow
     volumes:
       - ./dags:/opt/airflow/dags
-      - ./bronze:/opt/airflow/workspace/bronze
-      - ./silver:/opt/airflow/workspace/silver
-      - ./gold:/opt/airflow/workspace/gold
-      - ./data:/opt/airflow/workspace/data
+      - ./scripts:/opt/airflow/scripts
+      - ./data:/opt/airflow/data
+      - ./bronze:/opt/airflow/bronze
+      - ./silver:/opt/airflow/silver
+      - ./gold:/opt/airflow/gold
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: always
+
+  airflow-scheduler:
+    image: apache/airflow:2.6.3-python3.10
+    container_name: airflow_scheduler
+    command: bash -c "airflow db init && (airflow users create --username \"$${AIRFLOW_ADMIN_USER}\" --firstname admin --lastname admin --role Admin --email \"$${AIRFLOW_ADMIN_EMAIL}\" --password \"$${AIRFLOW_ADMIN_PASSWORD}\" || true) && airflow scheduler"
+    user: "${AIRFLOW_UID:-50000}:0"
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      - AIRFLOW_ADMIN_USER=${AIRFLOW_ADMIN_USER}
+      - AIRFLOW_ADMIN_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
+      - AIRFLOW_ADMIN_EMAIL=${AIRFLOW_ADMIN_EMAIL}
+      - _PIP_ADDITIONAL_REQUIREMENTS=pandas==2.2.0 pyarrow==15.0.0 requests==2.31.0
+      - PYTHONPATH=/opt/airflow
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./data:/opt/airflow/data
+      - ./bronze:/opt/airflow/bronze
+      - ./silver:/opt/airflow/silver
+      - ./gold:/opt/airflow/gold
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  postgres_data:
