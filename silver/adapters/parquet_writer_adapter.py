@@ -8,7 +8,7 @@ class ParquetCleanWriterAdapter(CleanDataWriterPort):
         if file_path is not None:
             self.file_path = file_path
         else:
-            self.file_path = os.path.join(output_dir, "selic_clean.parquet")
+            self.file_path = os.path.join(output_dir, "selic_cleaned.parquet")
 
     def write_clean_data(self, df: pd.DataFrame) -> str:
         output_dir = os.path.dirname(self.file_path)

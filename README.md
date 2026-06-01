@@ -1,20 +1,20 @@
 # Selic Rate Orchestration Pipeline (Banco Central do Brasil)
 
-Este repositório contém a orquestração de um pipeline de dados utilizando o **Apache Airflow** para consumir dados históricos da Taxa Selic diária do **Banco Central do Brasil (SGS Série 11)**, para o período de **01/01/2020 a 31/12/2024**.
+Este repositório contém a orquestração de um pipeline de dados de nível de produção utilizando o **Apache Airflow** para consumir, tratar e consolidar dados históricos da Taxa Selic diária do **Banco Central do Brasil (SGS Série 11)**, para o período de **01/01/2020 a 31/12/2024**.
 
-O projeto foi desenhado seguindo princípios de **Clean Code**, **SOLID**, **TDD (Test-Driven Development)**, **Arquitetura Hexagonal (Ports and Adapters)**, e conta com verificações rigorosas de **Qualidade de Dados** entre as camadas.
+O projeto foi projetado e construído seguindo princípios rigorosos de **Clean Code**, **SOLID**, **TDD (Test-Driven Development)**, **Arquitetura Hexagonal (Ports and Adapters)**, resiliência ativa contra falhas de API e verificações rígidas de **Qualidade de Dados (Data Quality Gates)** entre cada camada da arquitetura Medallion.
 
 ---
 
-## Arquitetura do Projeto
+## Arquitetura de Dados (Medallion & Ports and Adapters)
 
-O pipeline de dados é estruturado em três camadas clássicas de Data Lakehouse (Bronze, Silver e Gold), isoladas de forma modular em pacotes Python independentes. Cada camada implementa sua própria Arquitetura Hexagonal para garantir desacoplamento absoluto entre regras de negócio e infraestrutura.
+O pipeline de dados está dividido em três camadas lógicas independentes (Bronze, Silver e Gold), isoladas em pacotes Python modulares. Cada pacote possui fronteiras bem delimitadas através de portas (interfaces) e adaptadores (infraestrutura).
 
 ```mermaid
 graph TD
-    API([API BCB - SGS 11]) -->|Ingestão - bronze/| B_Stg[(data/bronze/selic_raw.parquet)]
+    API([API BCB - SGS 11]) -->|Ingestão & Resiliência - bronze/| B_Stg[(data/bronze/selic_raw.parquet)]
     B_Stg -->|Limpeza & Tipagem - silver/| S_Stg[(data/silver/selic_cleaned.parquet)]
-    S_Stg -->|Métricas & Agregação - gold/| G_Stg[(data/gold/selic_metrics.parquet)]
+    S_Stg -->|Métricas & Agregações - gold/| G_Stg[(data/gold/selic_metrics.parquet)]
 
     subgraph Airflow DAG [Orquestração Airflow]
         T1[Task 1: Ingestão Bronze] --> T2[Task 2: Transformação Silver]
@@ -22,33 +22,34 @@ graph TD
     end
 ```
 
-### Detalhamento das Camadas
+### Detalhamento Técnico das Camadas
 
 1. **Bronze (Ingestion)**:
-   - **Responsabilidade**: Consome a API do Banco Central e salva os dados brutos exatamente como retornados.
-   - **Formato**: Parquet (`data/bronze/selic_raw.parquet`).
-   - **Qualidade de Dados**: Garante que o retorno da API não esteja vazio e que a persistência em disco ocorreu corretamente.
-   
-2. **Silver (Transformation)**:
-   - **Responsabilidade**: Realiza a limpeza e a tipagem dos dados.
-   - **Transformações**:
-     - Conversão do campo `data` de `dd/MM/aaaa` para data nativa `datetime64[ns]`.
-     - Conversão de `valor` (string decimal contendo a taxa diária) para numérico `float64`.
-     - Remoção de nulos (`dropna`) e exclusão de duplicidades de datas (`drop_duplicates`).
-     - Ordenação cronológica.
-   - **Formato**: Parquet (`data/silver/selic_cleaned.parquet`).
-   - **Qualidade de Dados**: Garante que nenhuma linha nula persista, valida o formato das datas e as faixas de valores de taxa Selic diária (emite avisos/warnings caso alguma taxa diária esteja fora dos limites normais de mercado, ex: valores negativos ou acima de 1% ao dia).
+   - **Responsabilidade**: Consumir dados brutos da API SGS.
+   - **Mecanismos de Resiliência Ativa**:
+     - **Exponential Backoff**: Tenta realizar até 3 chamadas com delays crescentes ($2^{\text{tentativa}}$) se a API retornar instabilidade de rede ou erros 5xx.
+     - **Circuit Breaker**: Previne sobrecarga e falhas repetidas. Se ocorrerem 5 falhas consecutivas, o circuito abre por **60 segundos**, negando qualquer nova chamada imediatamente (`CircuitBreakerOpenError`) sem consumir recursos de rede.
+   - **Persistência**: Parquet (`data/bronze/selic_raw.parquet`).
 
-3. **Gold (Aggregation)**:
-   - **Responsabilidade**: Consolidação e geração de métricas analíticas prontas para consumo de BI ou modelos.
-   - **Métricas Calculadas**:
-     - **Média Mensal** (`media_mensal`): A média aritmética das taxas diárias em cada mês.
-     - **Desvio Padrão Mensal** (`desvio_padrao_mensal`): Medida de volatilidade da taxa no mês.
-     - **Variação Mensal** (`variacao_mensal`): Variação percentual sobre a média do mês anterior.
-     - **Taxa Acumulada Anual** (`taxa_acumulada_anual`): Acumulação da taxa composta diária usando a fórmula oficial de juros compostos:
+2. **Silver (Transformation)**:
+   - **Responsabilidade**: Sanitização e padronização.
+   - **Transformações**:
+     - Conversão de `data` para tipo nativo de data (`datetime64[ns]`).
+     - Conversão de `valor` (taxa percentual diária) para numérico (`float64`).
+     - Exclusão de duplicidades temporais e registros nulos (`dropna`, `drop_duplicates`).
+     - Ordenação cronológica estrita.
+   - **Quality Gates**: Emissão de alertas (`warnings`) no log caso as taxas diárias estejam fora de limites normais de mercado (ex: negativas ou acima de 1,0% ao dia).
+   - **Persistência**: Parquet (`data/silver/selic_cleaned.parquet`).
+
+3. **Gold (Analytics & Aggregation)**:
+   - **Responsabilidade**: Agregações analíticas e consolidação de métricas.
+   - **Métricas**:
+     - `media_mensal` e `desvio_padrao_mensal` (volatilidade).
+     - `variacao_mensal` (comparativo percentual em relação ao mês anterior).
+     - `taxa_acumulada_anual`: Juros compostos calculados pela fórmula de acumulação oficial do Banco Central:
        $$\text{Taxa Acumulada (\%)} = \left[ \prod_{i=1}^{N} \left(1 + \frac{\text{taxa}_i}{100}\right) - 1 \right] \times 100$$
-   - **Formato**: Parquet (`data/gold/selic_metrics.parquet`). Ambas as tabelas (mensal e acumulado anual) são compiladas em um único DataFrame consolidado (unidos pela chave do ano).
-   - **Qualidade de Dados**: Assegura que médias estejam dentro dos limites de taxas reais de mercado (entre 0% e 50% mensal) e rejeita qualquer dado nulo ou inconsistente.
+   - **Quality Gates**: Rejeita saídas com métricas nulas e valida se a média mensal está dentro da amplitude de normalidade econômica real (0% a 50% mensal).
+   - **Persistência**: Parquet consolidado (`data/gold/selic_metrics.parquet`) contendo as métricas de granularidade mensal e anual unificadas.
 
 ---
 
@@ -58,119 +59,99 @@ Cada pacote (`bronze/`, `silver/`, `gold/`) está estruturado da seguinte forma:
 
 ```
 [camada]/
-├── domain/            # Modelos e regras puras de negócio (Dataclasses)
-├── ports/             # Interfaces que delimitam as fronteiras
-│   ├── input_ports.py    # Interfaces de entrada (Use Cases executados pelo orquestrador/main)
-│   └── output_ports.py   # Interfaces de saída (Storage, API Reader, API Writer)
-├── adapters/          # Implementações concretas de infraestrutura
-│   ├── bcb_api_adapter.py      # Chamada HTTP à API
-│   ├── parquet_reader_adapter.py # Leitura de arquivos Parquet locais
-│   └── parquet_writer_adapter.py # Escrita de arquivos Parquet locais
-├── services/          # Orquestrador do fluxo da camada (Usecase Implementation)
-│   └── *_service.py            # Executa os adapters através das portas e checa qualidade
-├── tests/             # Suíte de testes unitários (TDD)
-│   ├── test_[camada]_adapters.py
-│   └── test_[camada]_[fluxo].py
-├── main.py            # Ponto de entrada executável da camada
+├── domain/                  # Entidades puras e regras de negócio
+├── ports/                   # Interfaces de fronteira (Ports)
+│   ├── input_ports.py       # Interfaces chamadas pelo orquestrador (Casos de Uso)
+│   └── output_ports.py      # Interfaces para sistemas externos (Storage, API)
+├── adapters/                # Implementações de infraestrutura concretas (Adapters)
+│   ├── bcb_api_adapter.py        # Adaptador HTTP com Circuit Breaker & Backoff
+│   ├── parquet_reader_adapter.py # Adaptador de leitura física Parquet
+│   └── parquet_writer_adapter.py # Adaptador de escrita física Parquet
+├── services/                # Regras de fluxo e Quality Gates (Casos de Uso)
+├── tests/                   # Suíte de testes unitários isolados
+├── main.py                  # CLI executável
 ```
-
-Esta arquitetura segue o **SOLID**:
-- **Single Responsibility Principle (SRP)**: Cada adapter e service faz apenas uma coisa.
-- **Open-Closed Principle (OCP)**: Adapters e constructors aceitam configurações dinâmicas de diretório de saída ou caminhos específicos de arquivos, mantendo compatibilidade com as execuções antigas.
-- **Dependency Inversion Principle (DIP)**: O `IngestService` depende de abstrações (`SelicSourcePort`, `RawStoragePort`), não de implementações de APIs ou sistemas de arquivos concretos.
 
 ---
 
-## Como Executar Localmente
+## ⚙️ Configurações de Ambiente (.env)
 
-### 1. Requisitos Prévios
-- Python 3.10 ou superior
-- Docker e Docker Compose
+Todas as variáveis sensíveis, credenciais de banco e parametrizações do Airflow estão desacopladas do código de infraestrutura e configuradas via arquivo `.env`. Crie o arquivo `.env` na raiz do projeto com a seguinte estrutura:
 
-### 2. Configurar o Ambiente Virtual Python
-Crie e ative o ambiente virtual para instalar as dependências e executar os testes:
+```ini
 
-```bash
-# Criar o ambiente virtual
-python3 -m venv venv
+AIRFLOW_UID=1000
 
-# Ativar no Linux/Mac
-source venv/bin/activate
 
-# Atualizar o pip e instalar os pacotes
-pip install --upgrade pip
-pip install -r requirements.txt
+POSTGRES_USER=airflow
+POSTGRES_PASSWORD=airflow_secure_password
+POSTGRES_DB=airflow
+AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow_secure_password@postgres/airflow
+
+
+AIRFLOW_ADMIN_USER=admin
+AIRFLOW_ADMIN_PASSWORD=admin
+AIRFLOW_ADMIN_EMAIL=admin@beanalytic.com.br
 ```
 
-### 3. Rodando os Testes Unitários e Linter (TDD)
-Os testes cobrem todas as regras de transformação, cálculos matemáticos compostos de juros, tratamento de exceções e persistência de dados.
+---
+
+## Execução via Docker Compose
+
+A stack roda com três containers orquestrados com restart automático e verificação de saúde (`healthcheck` no PostgreSQL):
 
 ```bash
-# Executa todos os testes
-PYTHONPATH=. pytest
 
-# Executa o linter flake8
+docker compose up -d
+
+
+docker compose ps
+```
+
+1. Acesse o painel do Airflow em [http://localhost:8080](http://localhost:8080) com os dados definidos no seu `.env` (`admin`/`admin`).
+2. A DAG `dag_selic_medallion` estará pronta para ser ativada e disparada manualmente.
+
+---
+
+## Qualidade de Software, Testes & CI/CD
+
+### 1. Testes Locais e Linter
+Mantemos uma alta cobertura de testes que cobre transformações matemáticas, fluxos de erros, estados de Circuit Breaker e integridade da topologia da DAG.
+
+```bash
+
+python3 -m venv venv
+source venv/bin/activate
+
+
+pip install --upgrade pip
+pip install -r requirements.txt
+
+
+PYTHONPATH=. pytest --cov=bronze --cov=silver --cov=gold --cov-fail-under=80
+
+
 flake8 bronze silver gold scripts tests
 ```
 
-### 4. Executando as Camadas Manualmente via CLI
-Você pode rodar as camadas sequencialmente utilizando os pontos de entrada no diretório `/scripts`:
+### 2. Esteira de Integração Contínua (GitHub Actions)
+A esteira configurada em `.github/workflows/ci-cd-pipeline.yml` valida todos os Pull Requests e pushes nos branches `main` e `develop`:
+- Executa a validação sintática do linter com o `flake8` (máximo de 120 caracteres por linha).
+- Roda os testes unitários (`pytest-cov`).
+- **Quality Gate de Cobertura**: A execução falha automaticamente no GitHub caso a cobertura de linhas caia abaixo de **80%** (cobertura atual do projeto: **95,18%**).
+- **Compatibilidade do Pendulum**: As dependências do projeto contam com a pinagem estrita `pendulum==2.1.2`, mitigando bugs de tipagem conhecidos nas versões mais recentes da biblioteca em execuções de scheduling do Airflow.
+
+---
+
+## 🛠️ Execução via CLI (Manual)
+
+Se necessário rodar o pipeline fora do Airflow de forma manual, utilize os scripts modulares:
 
 ```bash
-# Ingestão Bronze
+
 PYTHONPATH=. python scripts/bronze.py "01/01/2020" "31/12/2024" "data/bronze/selic_raw.parquet"
 
-# Transformação Silver
-PYTHONPATH=. python scripts/silver.py "data/bronze/selic_raw.parquet" "data/silver/selic_cleaned.parquet"
 
-# Agregação Gold
+PYTHONPATH=. python scripts/silver.py "data/bronze/selic_raw.parquet" "data/silver/selic_cleaned.parquet"
 PYTHONPATH=. python scripts/gold.py "data/silver/selic_cleaned.parquet" "data/gold/selic_metrics.parquet"
 ```
-
-Os arquivos serão salvos em:
-- `data/bronze/selic_raw.parquet`
-- `data/silver/selic_cleaned.parquet`
-- `data/gold/selic_metrics.parquet`
-
----
-
-## 🐳 Executando o Airflow via Docker Compose
-
-A infraestrutura do Airflow é orquestrada de forma isolada em containers Docker Compose utilizando um banco PostgreSQL como metastore de metadados.
-
-### 1. Preparar o Arquivo `.env`
-Defina o `AIRFLOW_UID` para evitar problemas de permissões com a pasta mapeada de dados no host:
-
-```bash
-echo "AIRFLOW_UID=$(id -u)" > .env
-```
-
-### 2. Inicializar os Serviços do Docker Compose
-Execute o comando a seguir para subir os containers (Postgres, Webserver e Scheduler):
-
-```bash
-docker compose up -d
-```
-
-### 3. Acessar a Interface do Airflow
-1. Abra o navegador em: [http://localhost:8080](http://localhost:8080)
-2. Faça login utilizando o usuário admin padrão:
-   - **Usuário**: `admin`
-   - **Senha**: `admin`
-3. Ative a DAG `dag_selic_medallion` e execute-a clicando no ícone de play (**Trigger DAG**).
-
-### 4. Finalizar o Ambiente
-Para parar os containers e limpar os recursos:
-
-```bash
-docker compose down
-```
-
----
-
-## ⚙️ CI/CD Pipeline (GitHub Actions)
-
-O pipeline de Integração Contínua está configurado no arquivo `.github/workflows/ci-cd-pipeline.yml` e roda em cada push ou pull request na `main` e `develop`:
-1. Instala o ambiente e as dependências de desenvolvimento.
-2. Roda o **linter (flake8)** para garantir que as diretrizes do PEP-8 sejam obedecidas.
-3. Roda a suíte de **testes unitários (pytest)** para validar se as transformações e tipos de dados de todas as camadas estão corretos.

@@ -103,6 +103,8 @@ Era necessário garantir que novos commits não quebrassem as regras de negócio
 - Desenvolvemos testes unitários isolados sob `/tests/test_transformations.py` para validar a sanitização dos tipos de dados de forma offline (sem fazer requisições reais ou gravar em bancos de dados).
 - Configuramos um linter estrito (`flake8`) limitando a linha de código máxima em 120 caracteres.
 - Criamos um pipeline de Integração Contínua (`ci-cd-pipeline.yml`) via GitHub Actions para rodar a checagem sintática (`flake8`) e a suíte de testes unitários (`pytest`) a cada push ou Pull Request direcionado aos branches `main` e `develop`.
+- **Quality Gate de Cobertura**: Integramos o `pytest-cov` no pipeline de testes unitários e estabelecemos uma restrição rígida de cobertura mínima de código de **80%** (`--cov-fail-under=80`).
+- **Configuração de Exclusões**: Criamos o arquivo `.coveragerc` para desconsiderar arquivos de entrypoint (`main.py`) e diretórios de teste, evitando distorções estatísticas nos relatórios.
 
 ---
 
@@ -122,3 +124,34 @@ Implementamos no adaptador `BcbApiAdapter` da camada Bronze:
 ### Racional / Benefícios
 - **Autopreservação e Proteção da API**: Evita sobrecarregar a API pública externa com requisições repetidas se ela estiver instável.
 - **Configurabilidade para Testes**: Os parâmetros de retentativa e backoff factor são configuráveis no construtor do adaptador, permitindo que os testes unitários desliguem o delay (`backoff_factor=0.0`) para rodarem em milissegundos sem lentidão.
+
+---
+
+## 9. Testabilidade e Integridade Estrutural da DAG
+
+### Contexto
+Erros de importação no scheduler do Airflow e alterações indesejadas em propriedades críticas da DAG (ex: políticas de retry e conexões entre tasks) muitas vezes só eram detectados em tempo de execução no ambiente conteinerizado.
+
+### Decisão
+Implementamos um teste de integridade estrutural e topológica dedicado da DAG em `tests/test_dag.py`. O teste:
+1. Importa o módulo da DAG diretamente no pytest.
+2. Assegura que não há exceções de importação em tempo de análise.
+3. Valida a estrutura da DAG (IDs de tarefas e fluxo unidirecional rígido: `ingest_bronze >> transform_silver >> aggregate_gold`).
+4. Garante a configuração de parâmetros fundamentais de compliance (como `catchup=False`, `retries=2` e `retry_delay=timedelta(minutes=5)`).
+
+### Racional / Benefícios
+- **Falha Rápida (Fail-Fast)**: Erros simples de importação ou de conexões entre operators quebram a esteira de CI/CD imediatamente, antes do deploy no servidor Airflow.
+
+---
+
+## 10. Resolução de Compatibilidade de Dependências (Airflow vs Pendulum)
+
+### Contexto
+O Apache Airflow 2.6.3 foi projetado e homologado para a biblioteca `pendulum` na versão `2.x`. O lançamento do `pendulum==3.x` gerou incompatibilidade na inicialização do scheduler do Airflow, quebrando conversões de fuso horário (`TypeError: 'module' object is not callable` ao referenciar `pendulum.tz`).
+
+### Decisão
+- Pinamos explicitamente a dependência de compatibilidade estável `pendulum==2.1.2` no arquivo `requirements.txt`.
+- Adicionamos o `pendulum==2.1.2` na variável `_PIP_ADDITIONAL_REQUIREMENTS` do `docker-compose.yaml` para impedir atualizações automáticas para versões 3.x na inicialização dos containers.
+
+### Racional / Benefícios
+- **Consistência de Ambiente**: Garante estabilidade nos fluxos locais, containers e esteira de CI/CD, eliminando quebras silenciosas por atualização de pacotes terceiros.
