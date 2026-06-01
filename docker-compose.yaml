@@ -1,25 +1,22 @@
-version: '3.8'
-
 services:
   airflow-local:
     image: apache/airflow:2.6.3-python3.10
     container_name: airflow_selic_challenge
     command: standalone
+    user: "${AIRFLOW_UID:-50000}:0"
     ports:
       - "8080:8080"
     environment:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
-      - _PIP_ADDITIONAL_REQUIREMENTS=pandas pyarrow requests
+      - _PIP_ADDITIONAL_REQUIREMENTS=pandas==2.0.3 pyarrow==11.0.0 requests==2.31.0
       - PYTHONPATH=/opt/airflow/workspace
     volumes:
-      # Mount the DAGs folder
       - ./dags:/opt/airflow/dags
-      # Mount layers into the workspace folder so they are on the PYTHONPATH
+      - ./scripts:/opt/airflow/scripts
       - ./bronze:/opt/airflow/workspace/bronze
       - ./silver:/opt/airflow/workspace/silver
       - ./gold:/opt/airflow/workspace/gold
-      # Mount the local data directory to persist Parquet files on host
-      - ./data:/opt/airflow/workspace/data
+      - ./data:/opt/airflow/data
     restart: always
