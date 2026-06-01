@@ -14,12 +14,9 @@ services:
       - _PIP_ADDITIONAL_REQUIREMENTS=pandas pyarrow requests
       - PYTHONPATH=/opt/airflow/workspace
     volumes:
-      # Mount the DAGs folder
       - ./dags:/opt/airflow/dags
-      # Mount layers into the workspace folder so they are on the PYTHONPATH
       - ./bronze:/opt/airflow/workspace/bronze
       - ./silver:/opt/airflow/workspace/silver
       - ./gold:/opt/airflow/workspace/gold
-      # Mount the local data directory to persist Parquet files on host
       - ./data:/opt/airflow/workspace/data
     restart: always
