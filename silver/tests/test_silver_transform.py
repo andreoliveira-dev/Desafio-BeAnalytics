@@ -1,5 +1,4 @@
 import pytest
-from datetime import date
 import pandas as pd
 from unittest.mock import MagicMock
 from silver.ports.output_ports import RawDataReaderPort, CleanDataWriterPort
@@ -38,9 +37,9 @@ def test_transform_service_success():
 
     # Should only contain 02/01/2020 and 03/01/2020
     assert len(called_args) == 2
-    assert called_args.iloc[0]["data"] == date(2020, 1, 2)
+    assert called_args.iloc[0]["data"] == pd.Timestamp("2020-01-02")
     assert called_args.iloc[0]["valor"] == pytest.approx(0.017089)
-    assert called_args.iloc[1]["data"] == date(2020, 1, 3)
+    assert called_args.iloc[1]["data"] == pd.Timestamp("2020-01-03")
     assert called_args.iloc[1]["valor"] == pytest.approx(0.017090)
 
 
