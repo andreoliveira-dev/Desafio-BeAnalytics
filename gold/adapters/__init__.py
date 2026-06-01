@@ -1,0 +1,1 @@
+# Gold adapters package init

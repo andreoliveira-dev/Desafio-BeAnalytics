@@ -1,0 +1,1 @@
+# Silver adapters package init
