@@ -50,8 +50,8 @@ def test_silver_transformation_logs_warnings_for_out_of_bounds_rates(caplog):
 
     raw_df = pd.DataFrame([
         {"data": "01/01/2020", "valor": "0.015"},
-        {"data": "02/01/2020", "valor": "-0.005"},  # Negative rate
-        {"data": "03/01/2020", "valor": "1.05"},    # Rate > 1.0% per day
+        {"data": "02/01/2020", "valor": "-0.005"},
+        {"data": "03/01/2020", "valor": "1.05"},
     ])
 
     mock_reader.read_raw_data.return_value = raw_df

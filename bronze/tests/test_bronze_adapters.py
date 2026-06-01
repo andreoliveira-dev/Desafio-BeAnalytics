@@ -34,7 +34,7 @@ def test_bcb_api_adapter_fetch_success():
 
 def test_bcb_api_adapter_fetch_failure():
     # Arrange
-    adapter = BcbApiAdapter()
+    adapter = BcbApiAdapter(backoff_factor=0.0)
 
     with patch("requests.get", side_effect=Exception("Timeout")):
         # Act & Assert
@@ -42,6 +42,44 @@ def test_bcb_api_adapter_fetch_failure():
             adapter.fetch_data("01/01/2020", "31/12/2024")
 
         assert "Error fetching data from BCB API" in str(excinfo.value)
+
+
+def test_bcb_api_adapter_exponential_backoff():
+    # Arrange
+    adapter = BcbApiAdapter(backoff_factor=0.001, max_retries=3)
+
+    # First two attempts fail, third succeeds
+    mock_success = MagicMock()
+    mock_success.json.return_value = [{"data": "02/01/2020", "valor": "0.01"}]
+    mock_success.raise_for_status = MagicMock()
+
+    with patch("requests.get", side_effect=[Exception("API Error"), Exception("API Error"), mock_success]) as mock_get:
+        result = adapter.fetch_data("01/01/2020", "31/12/2024")
+        assert len(result) == 1
+        assert mock_get.call_count == 3
+
+
+def test_bcb_api_adapter_circuit_breaker():
+    # Reset state
+    BcbApiAdapter._reset_circuit_state_for_tests()
+    adapter = BcbApiAdapter(backoff_factor=0.0, max_retries=1)
+
+    from bronze.adapters.bcb_api_adapter import CircuitBreakerOpenError
+
+    # Fail 5 times to open the circuit
+    with patch("requests.get", side_effect=Exception("API Error")):
+        for _ in range(5):
+            with pytest.raises(RuntimeError):
+                adapter.fetch_data("01/01/2020", "31/12/2024")
+
+    # The 6th request should fail immediately with CircuitBreakerOpenError without calling requests.get
+    with patch("requests.get") as mock_get:
+        with pytest.raises(CircuitBreakerOpenError):
+            adapter.fetch_data("01/01/2020", "31/12/2024")
+        mock_get.assert_not_called()
+
+    # Clean up state for other tests
+    BcbApiAdapter._reset_circuit_state_for_tests()
 
 
 def test_local_parquet_storage_adapter_save_success(tmp_path):

@@ -20,7 +20,7 @@ with DAG(
     "dag_selic_medallion",
     default_args=default_args,
     description="Orchestrates BCB Selic Daily Interest Rates pipeline across Medallion layers",
-    schedule_interval=None,
+    schedule=None,
     catchup=False,
 ) as dag:
 
