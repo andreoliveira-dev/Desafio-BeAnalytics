@@ -1,5 +1,4 @@
 import pandas as pd
-from typing import Tuple
 from gold.ports.input_ports import AggregateUseCase
 from gold.ports.output_ports import CleanDataReaderPort, MetricsWriterPort
 
@@ -9,7 +8,7 @@ class AggregateService(AggregateUseCase):
         self.reader = reader
         self.writer = writer
 
-    def execute(self) -> Tuple[str, str]:
+    def execute(self) -> str:
         # 1. Read cleaned data
         df = self.reader.read_clean_data()
 
@@ -23,12 +22,15 @@ class AggregateService(AggregateUseCase):
         # 4. Calculate Annual Metrics
         annual_df = self._calculate_annual_metrics(df)
 
-        # 5. Data Quality Checks on Outputs
-        self._validate_metrics(monthly_df, annual_df)
+        # 5. Merge Monthly and Annual Metrics
+        metrics_df = pd.merge(monthly_df, annual_df, on="ano", how="left")
 
-        # 6. Save Metrics
-        saved_paths = self.writer.write_metrics(monthly_df, annual_df)
-        return saved_paths
+        # 6. Data Quality Checks on Outputs
+        self._validate_metrics(metrics_df)
+
+        # 7. Save Metrics
+        saved_path = self.writer.write_metrics(metrics_df)
+        return saved_path
 
     def _calculate_monthly_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
         df_temp = df.copy()
@@ -47,12 +49,10 @@ class AggregateService(AggregateUseCase):
         grouped = grouped.sort_values(by=["ano", "mes"]).reset_index(drop=True)
 
         # Compute variations compared to the previous month
-        grouped["variacao_absoluta_mensal"] = grouped["media_mensal"].diff()
-        grouped["variacao_percentual_mensal"] = grouped["media_mensal"].pct_change() * 100.0
+        grouped["variacao_mensal"] = grouped["media_mensal"].pct_change() * 100.0
 
-        # Fill first row's variations with 0.0
-        grouped["variacao_absoluta_mensal"] = grouped["variacao_absoluta_mensal"].fillna(0.0)
-        grouped["variacao_percentual_mensal"] = grouped["variacao_percentual_mensal"].fillna(0.0)
+        # Fill first row's variation with 0.0
+        grouped["variacao_mensal"] = grouped["variacao_mensal"].fillna(0.0)
 
         return grouped
 
@@ -72,20 +72,20 @@ class AggregateService(AggregateUseCase):
 
         return grouped
 
-    def _validate_metrics(self, monthly_df: pd.DataFrame, annual_df: pd.DataFrame) -> None:
+    def _validate_metrics(self, df: pd.DataFrame) -> None:
         # Ensure we have records
-        if monthly_df.empty or annual_df.empty:
+        if df.empty:
             raise ValueError("Data quality check failed: Generated metrics are empty.")
 
         # Check that averages are within expected economic bounds for Selic rates
         # (0% to 50% monthly is a very safe limit)
-        if not monthly_df["media_mensal"].between(0.0, 50.0).all():
-            bad_values = monthly_df[~monthly_df["media_mensal"].between(0.0, 50.0)]
+        if not df["media_mensal"].between(0.0, 50.0).all():
+            bad_values = df[~df["media_mensal"].between(0.0, 50.0)]
             bad_list = bad_values[['ano', 'mes', 'media_mensal']].to_dict('records')
             raise ValueError(
                 f"Data quality check failed: Out of bounds monthly average: {bad_list}"
             )
 
         # Check for nulls in the calculated metrics
-        if monthly_df.isnull().any().any() or annual_df.isnull().any().any():
+        if df.isnull().any().any():
             raise ValueError("Data quality check failed: Generated metrics contain null values.")
