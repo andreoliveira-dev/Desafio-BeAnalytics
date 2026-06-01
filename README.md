@@ -6,7 +6,7 @@ O projeto foi desenhado seguindo princípios de **Clean Code**, **SOLID**, **TDD
 
 ---
 
-## 🏗️ Arquitetura do Projeto
+## Arquitetura do Projeto
 
 O pipeline de dados é estruturado em três camadas clássicas de Data Lakehouse (Bronze, Silver e Gold), isoladas de forma modular em pacotes Python independentes. Cada camada implementa sua própria Arquitetura Hexagonal para garantir desacoplamento absoluto entre regras de negócio e infraestrutura.
 
@@ -52,7 +52,7 @@ graph TD
 
 ---
 
-## 📐 Estrutura de Pastas (Arquitetura Hexagonal)
+## Estrutura de Pastas (Arquitetura Hexagonal)
 
 Cada pacote (`bronze/`, `silver/`, `gold/`) está estruturado da seguinte forma:
 
@@ -81,7 +81,7 @@ Esta arquitetura segue o **SOLID**:
 
 ---
 
-## 🚀 Como Executar Localmente
+## Como Executar Localmente
 
 ### 1. Requisitos Prévios
 - Python 3.10 ou superior
