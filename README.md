@@ -133,35 +133,50 @@ Após executar, você encontrará os arquivos salvos em:
 
 ---
 
-## 🐳 Executando o Airflow via Docker Compose (Diferencial)
+## 🐳 Executando o Airflow via Docker Compose
 
-Preparamos um arquivo `docker-compose.yaml` completo que roda a instância local do Airflow em modo `standalone` (super leve, usando banco SQLite embarcado). Ele monta automaticamente os pacotes Python e a pasta de DAGs no container, mantendo o ambiente idêntico ao local.
+A infraestrutura do Airflow é orquestrada de forma isolada em containers Docker Compose utilizando um banco PostgreSQL como metastore de metadados.
 
-### 1. Inicializar o Container do Airflow
-Inicie o ambiente utilizando o Docker Compose:
+### 1. Configurar o Arquivo `.env`
+O projeto necessita de um arquivo `.env` na raiz do diretório para mapear o `AIRFLOW_UID` (evitando problemas de permissão com o host) e definir as credenciais do banco e do Airflow. 
+
+Você pode criar ou complementar o `.env` com a seguinte estrutura padrão:
+
+```env
+AIRFLOW_UID=1000
+
+# Configurações do Banco de Dados
+POSTGRES_USER=airflow
+POSTGRES_PASSWORD=sua_senha_segura
+POSTGRES_DB=airflow
+
+# Conexão do Airflow
+AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:sua_senha_segura@postgres/airflow
+
+# Usuário Administrador do Airflow
+AIRFLOW_ADMIN_USER=admin
+AIRFLOW_ADMIN_PASSWORD=sua_senha_segura_admin
+AIRFLOW_ADMIN_EMAIL=admin@example.com
+```
+
+*Dica: Para adicionar automaticamente seu UID do Linux ao `.env`, você pode executar:*
+```bash
+echo "AIRFLOW_UID=$(id -u)" >> .env
+```
+
+### 2. Inicializar os Serviços do Docker Compose
+Execute o comando a seguir para subir os containers (Postgres, Webserver e Scheduler):
 
 ```bash
 docker compose up -d
 ```
 
-### 2. Acessar a Interface Web do Airflow
-1. Abra o navegador e acesse: [http://localhost:8080](http://localhost:8080)
-2. Para obter as credenciais geradas automaticamente pelo Airflow, você pode ler o arquivo de log gerado no container ou os arquivos de configuração locais criados, ou definir um usuário manualmente no container:
-   
-   ```bash
-   docker exec -it airflow_selic_challenge airflow users create \
-       --username admin \
-       --firstname Admin \
-       --lastname User \
-       --role Admin \
-       --email admin@example.com \
-       --password admin
-   ```
-   *Agora você pode logar com usuário `admin` e senha `admin` na tela web.*
+### 3. Acessar a Interface do Airflow
+1. Abra o navegador em: [http://localhost:8080](http://localhost:8080)
+2. Faça login utilizando as credenciais definidas nas variáveis `AIRFLOW_ADMIN_USER` e `AIRFLOW_ADMIN_PASSWORD` do seu arquivo `.env` (Padrão: `admin` / `sua_senha_segura_admin`).
+3. Ative a DAG `dag_selic_medallion` e execute-a clicando no ícone de play (**Trigger DAG**).
 
-3. Ative a DAG `selic_bcb_pipeline` e clique no botão **Trigger DAG** (ícone de play) no canto superior direito para rodar o pipeline completo sequencialmente!
-
-### 3. Finalizar o Ambiente
+### 4. Finalizar o Ambiente
 Para parar os containers e limpar os recursos:
 
 ```bash
