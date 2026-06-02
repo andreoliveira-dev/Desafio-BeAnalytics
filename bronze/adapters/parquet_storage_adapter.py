@@ -17,11 +17,14 @@ class LocalParquetStorageAdapter(RawStoragePort):
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
-        # Convert list of dataclasses to DataFrame
         data = [{"data": r.data, "valor": r.valor} for r in records]
         df = pl.DataFrame(data)
 
-        # Save to Parquet
         df.write_parquet(self.file_path)
-        return self.file_path
 
+        import json
+        json_path = self.file_path.replace(".parquet", ".json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        return self.file_path

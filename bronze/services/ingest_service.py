@@ -8,14 +8,9 @@ class IngestService(IngestUseCase):
         self.storage = storage
 
     def execute(self, start_date: str, end_date: str) -> str:
-        # Ingestion flow
-        # 1. Fetch data from API
         records = self.source.fetch_data(start_date, end_date)
 
-        # 2. Quality Check: Check if list is empty
         if not records:
             raise ValueError("Data quality check failed: No records fetched from source API.")
-
-        # 3. Save to Parquet
         output_path = self.storage.save_data(records)
         return output_path

@@ -19,4 +19,3 @@ class CleanDataWriterPort(ABC):
         Returns the saved file path.
         """
         pass
-

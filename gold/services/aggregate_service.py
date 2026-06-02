@@ -9,10 +9,9 @@ class AggregateService(AggregateUseCase):
         self.writer = writer
 
     def execute(self) -> str:
-        # 1. Read cleaned data
+
         df_lazy = self.reader.read_clean_data()
 
-        # 2. Check if clean data is empty
         try:
             if df_lazy.limit(1).collect().height == 0:
                 raise ValueError("Data quality check failed: Clean data is empty.")
@@ -21,25 +20,19 @@ class AggregateService(AggregateUseCase):
                 raise
             raise ValueError(f"Data quality check failed: Clean data is empty or corrupted: {str(e)}") from e
 
-        # 3. Calculate Monthly Metrics (returns LazyFrame)
         monthly_lazy = self._calculate_monthly_metrics(df_lazy)
 
-        # 4. Calculate Annual Metrics (returns LazyFrame)
         annual_lazy = self._calculate_annual_metrics(df_lazy)
 
-        # 5. Merge Monthly and Annual Metrics
         metrics_lazy = monthly_lazy.join(annual_lazy, on="ano", how="left")
 
-        # Collect with streaming=True
         try:
             metrics_df = metrics_lazy.collect(streaming=True)
         except Exception as e:
             raise ValueError(f"Data quality check failed during metrics aggregation: {str(e)}") from e
 
-        # 6. Data Quality Checks on Outputs
         self._validate_metrics(metrics_df)
 
-        # 7. Save Metrics
         saved_path = self.writer.write_metrics(metrics_df)
         return saved_path
 
@@ -49,7 +42,6 @@ class AggregateService(AggregateUseCase):
             pl.col("data").dt.month().alias("mes")
         ])
 
-        # Group by year and month
         grouped = (
             df_temp
             .group_by(["ano", "mes"])
@@ -63,8 +55,6 @@ class AggregateService(AggregateUseCase):
             .sort(["ano", "mes"])
         )
 
-        # Compute variations compared to the previous month
-        # (media_mensal - shift(1)) / shift(1) * 100
         grouped = grouped.with_columns(
             (
                 (pl.col("media_mensal") - pl.col("media_mensal").shift(1))
@@ -82,8 +72,6 @@ class AggregateService(AggregateUseCase):
             pl.col("data").dt.year().alias("ano")
         )
 
-        # Compounding formula for daily rates:
-        # Rate (%) = [ Product (1 + rate_i / 100) - 1 ] * 100
         grouped = (
             df_temp
             .group_by("ano")
@@ -95,12 +83,10 @@ class AggregateService(AggregateUseCase):
         return grouped
 
     def _validate_metrics(self, df: pl.DataFrame) -> None:
-        # Ensure we have records
+
         if df.height == 0:
             raise ValueError("Data quality check failed: Generated metrics are empty.")
 
-        # Check that averages are within expected economic bounds for Selic rates
-        # (0% to 50% monthly is a very safe limit)
         out_of_bounds = df.filter((pl.col("media_mensal") < 0.0) | (pl.col("media_mensal") > 50.0))
         if out_of_bounds.height > 0:
             bad_list = out_of_bounds.select(['ano', 'mes', 'media_mensal']).to_dicts()
@@ -108,8 +94,6 @@ class AggregateService(AggregateUseCase):
                 f"Data quality check failed: Out of bounds monthly average: {bad_list}"
             )
 
-        # Check for nulls in the calculated metrics
         for col in df.columns:
             if df[col].null_count() > 0:
                 raise ValueError("Data quality check failed: Generated metrics contain null values.")
-

@@ -12,10 +12,10 @@ class CircuitBreakerOpenError(RuntimeError):
 class BcbApiAdapter(SelicSourcePort):
     _failure_count = 0
     _last_failure_time = 0.0
-    _state = "CLOSED"  # CLOSED, OPEN, HALF-OPEN
+    _state = "CLOSED"
 
     FAILURE_THRESHOLD = 5
-    COOLDOWN_PERIOD = 60.0  # seconds
+    COOLDOWN_PERIOD = 60.0
 
     def __init__(
         self,

@@ -15,16 +15,23 @@ def run_silver(
 
     storage_type = os.getenv("STORAGE_TYPE", "local").lower()
     if input_path is None:
-        input_path = "s3://selic-bucket/bronze/selic_raw.parquet" if storage_type == "s3" else "data/bronze/selic_raw.parquet"
+        input_path = (
+            "s3://selic-bucket/bronze/selic_raw.parquet"
+            if storage_type == "s3"
+            else "data/bronze/selic_raw.parquet"
+        )
     if output_path is None:
-        output_path = "s3://selic-bucket/silver/selic_cleaned.parquet" if storage_type == "s3" else "data/silver/selic_cleaned.parquet"
+        output_path = (
+            "s3://selic-bucket/silver/selic_cleaned.parquet"
+            if storage_type == "s3"
+            else "data/silver/selic_cleaned.parquet"
+        )
 
     reader = ParquetRawReaderAdapter(file_path=input_path)
     writer = ParquetCleanWriterAdapter(file_path=output_path)
     service = TransformService(reader=reader, writer=writer)
 
     return service.execute()
-
 
 
 if __name__ == "__main__":

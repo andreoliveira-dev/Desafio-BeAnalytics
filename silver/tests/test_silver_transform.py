@@ -76,4 +76,3 @@ def test_transform_service_no_valid_data_left_raises_error():
     with pytest.raises(ValueError) as excinfo:
         service.execute()
     assert "No valid records left" in str(excinfo.value)
-

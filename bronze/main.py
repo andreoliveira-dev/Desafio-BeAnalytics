@@ -22,7 +22,6 @@ def run(start_date: str = "01/01/2020", end_date: str = "31/12/2024") -> str:
 
     service = IngestService(source=source, storage=storage)
 
-
     try:
         output_path = service.execute(start_date, end_date)
         print(f"Bronze Ingestion finished successfully. Raw data saved to: {output_path}")

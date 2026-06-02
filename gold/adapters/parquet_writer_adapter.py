@@ -32,12 +32,26 @@ class ParquetMetricsWriterAdapter(MetricsWriterPort):
             with fs.open(self.file_path, "wb") as f:
                 df.write_parquet(f)
 
-
+            if "ano" in df.columns and "mes" in df.columns:
+                s3_dir = os.path.dirname(self.file_path)
+                for (yr, mn), sub_df in df.group_by(["ano", "mes"]):
+                    part_path = f"{s3_dir}/partitioned/year={yr}/month={mn}/data.parquet"
+                    with fs.open(part_path, "wb") as f:
+                        sub_df.write_parquet(f)
         else:
             output_dir = os.path.dirname(self.file_path)
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
             df.write_parquet(self.file_path)
 
-        return self.file_path
+            if "ano" in df.columns and "mes" in df.columns:
+                local_dir = os.path.dirname(self.file_path)
+                for (yr, mn), sub_df in df.group_by(["ano", "mes"]):
+                    part_dir = os.path.join(
+                        local_dir, "partitioned", f"year={yr}", f"month={mn}"
+                    )
+                    os.makedirs(part_dir, exist_ok=True)
+                    part_path = os.path.join(part_dir, "data.parquet")
+                    sub_df.write_parquet(part_path)
 
+        return self.file_path

@@ -30,6 +30,7 @@ graph TD
      - **Exponential Backoff**: Tenta realizar até 3 chamadas com delays crescentes ($2^{\text{tentativa}}$) se a API retornar instabilidade de rede ou erros 5xx.
      - **Circuit Breaker**: Previne sobrecarga e falhas repetidas. Se ocorrerem 5 falhas consecutivas, o circuito abre por **60 segundos**, negando qualquer nova chamada imediatamente (`CircuitBreakerOpenError`) sem consumir recursos de rede.
    - **Persistência**: Parquet (`data/bronze/selic_raw.parquet` ou `s3://selic-bucket/bronze/selic_raw.parquet`).
+   - **Trilha de Auditoria (JSON)**: Salva adicionalmente o payload original retornado pela API em formato JSON (`selic_raw.json`) no mesmo diretório de destino.
 
 2. **Silver (Transformation)**:
    - **Responsabilidade**: Sanitização e padronização rápida utilizando **Polars LazyFrame**.
@@ -40,7 +41,7 @@ graph TD
      - Ordenação cronológica estrita.
    - **Performance**: Executado em modo lazy com streaming (`streaming=True` no `collect()`) para otimização de plano física e memória.
    - **Quality Gates**: Emissão de alertas (`warnings`) no log caso as taxas diárias estejam fora de limites normais de mercado (ex: negativas ou acima de 1,0% ao dia).
-   - **Persistência**: Parquet (`data/silver/selic_cleaned.parquet` ou `s3://selic-bucket/silver/selic_cleaned.parquet`).
+   - **Persistência**: Parquet unificado (`data/silver/selic_cleaned.parquet` ou `s3://selic-bucket/silver/selic_cleaned.parquet`) e **particionado** no estilo Hive (`partitioned/year=YYYY/month=MM/data.parquet`) sob a mesma pasta.
 
 3. **Gold (Analytics & Aggregation)**:
    - **Responsabilidade**: Agregações analíticas e consolidação de métricas via **Polars Lazy API**.
@@ -50,7 +51,7 @@ graph TD
      - `taxa_acumulada_anual`: Juros compostos calculados por expressões vetorizadas rápidas do Polars:
        $$\text{Taxa Acumulada (\%)} = \left[ \prod_{i=1}^{N} \left(1 + \frac{\text{taxa}_i}{100}\right) - 1 \right] \times 100$$
    - **Quality Gates**: Rejeita saídas com métricas nulas e valida se a média mensal está dentro da amplitude de normalidade econômica real (0% a 50% mensal).
-   - **Persistência**: Parquet consolidado (`data/gold/selic_metrics.parquet` ou `s3://selic-bucket/gold/selic_metrics.parquet`) contendo as métricas de granularidade mensal e anual unificadas.
+   - **Persistência**: Parquet consolidado (`data/gold/selic_metrics.parquet` ou `s3://selic-bucket/gold/selic_metrics.parquet`) e **particionado** no estilo Hive (`partitioned/year=YYYY/month=MM/data.parquet`) sob a mesma pasta.
 
 ---
 

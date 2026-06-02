@@ -36,7 +36,6 @@ def run_bronze(
     return service.execute(start_date, end_date)
 
 
-
 if __name__ == "__main__":
     s_date = sys.argv[1] if len(sys.argv) > 1 else "01/01/2020"
     e_date = sys.argv[2] if len(sys.argv) > 2 else "31/12/2024"

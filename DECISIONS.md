@@ -207,3 +207,19 @@ Originalmente, a persistência de dados do pipeline estava restrita ao sistema d
 - **Conformidade em Ambientes de Produção Cloud-Native**: A mesma base de código pode ser executada localmente no disco rígido do desenvolvedor (ou ambientes de testes simples) ou apontada para um bucket de produção no AWS S3, Google Cloud Storage, ou cluster MinIO on-premise apenas trocando variáveis de ambiente.
 - **Resolução de Compatibilidade de Protocolo**: Configuramos parâmetros de conexão planos (`aws_access_key_id`, `aws_secret_access_key`, `endpoint_url` e `aws_region`) para alimentar diretamente o backend em Rust do Polars, assegurando performance nativa de rede na leitura/escrita de arquivos remotos sem gargalos de serialização.
 
+---
+
+## 14. Arquivamento de JSON Bruto (Bronze) e Particionamento Físico de Dados (Silver & Gold)
+
+### Contexto
+Para fins de governança de dados, auditoria e facilidade de depuração, é uma boa prática em engenharia de dados armazenar o payload original retornado por APIs de terceiros exatamente no formato original (JSON bruto), permitindo auditorias e reprocessamentos idênticos. Além disso, no carregamento de grandes volumes de dados (Big Data), a ausência de particionamento físico dificulta consultas downstream em subset de dados de anos/meses específicos (gerando full table scans indesejados).
+
+### Decisão
+1. **JSON Arquivamento (Bronze)**: Atualizamos os adaptadores de gravação física da camada Bronze para salvar um arquivo `.json` bruto com a lista de registros retornados da chamada SGS API, localizado exatamente na mesma pasta do arquivo parquet unificado (tanto local quanto em S3/MinIO).
+2. **Particionamento Físico (Silver & Gold)**: Implementamos nos adaptadores de escrita da camada Silver e Gold uma lógica dinâmica para gravar os dados de forma particionada no estilo Hive (`partitioned/year=YYYY/month=MM/data.parquet`).
+   - Para retrocompatibilidade e integridade da DAG e suíte de testes existente, o arquivo único consolidado `.parquet` ainda é escrito e serve como entrypoint principal.
+   - O particionador realiza o agrupamento (`group_by`) por ano/mês dos registros de forma otimizada e grava cada subconjunto nos respectivos caminhos de partições tanto em S3 quanto localmente.
+
+### Racional / Benefícios
+- **Linhagem e Auditabilidade**: Garante um registro imutável do exato payload retornado da API externa, de forma que qualquer divergência possa ser investigada a partir dos bits originais sem depender de nova chamada na API do Banco Central.
+- **Eficiência e Prática de Data Lake**: A cópia física de partição demonstra o domínio de arquitetura de Data Lakes on-premise ou cloud, permitindo que motores de consulta eficientes (como Athena, Trino, DuckDB ou o próprio Polars/Spark) leiam somente os caminhos de partição solicitados (partition pruning), cortando drasticamente custos de I/O de disco e rede.

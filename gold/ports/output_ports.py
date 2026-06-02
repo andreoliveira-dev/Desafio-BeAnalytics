@@ -19,4 +19,3 @@ class MetricsWriterPort(ABC):
         Returns the saved path.
         """
         pass
-

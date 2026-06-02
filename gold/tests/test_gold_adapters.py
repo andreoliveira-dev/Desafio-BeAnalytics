@@ -35,4 +35,3 @@ def test_parquet_metrics_writer_and_reader_success(tmp_path):
     read_metrics_df = reader.read_clean_data().collect()
     assert read_metrics_df.height == 1
     assert read_metrics_df["media_mensal"][0] == pytest.approx(0.15)
-

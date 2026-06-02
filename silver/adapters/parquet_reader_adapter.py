@@ -15,4 +15,3 @@ class ParquetRawReaderAdapter(RawDataReaderPort):
         if not os.path.exists(self.file_path):
             raise FileNotFoundError(f"Raw data file not found at: {self.file_path}")
         return pl.scan_parquet(self.file_path)
-

@@ -72,4 +72,3 @@ def test_aggregate_service_empty_input_raises_error():
     with pytest.raises(ValueError) as excinfo:
         service.execute()
     assert "Clean data is empty" in str(excinfo.value)
-

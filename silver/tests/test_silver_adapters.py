@@ -38,4 +38,3 @@ def test_parquet_clean_writer_and_reader_success(tmp_path):
     assert list(read_df.columns) == ["data", "valor"]
     assert read_df["data"][0] == "2020-01-02"
     assert read_df["valor"][0] == pytest.approx(0.017089)
-

@@ -25,8 +25,6 @@ def get_s3_storage_options() -> dict:
     return options
 
 
-
-
 def ensure_s3_bucket(bucket_name: str) -> None:
     endpoint_url = os.getenv("S3_ENDPOINT_URL")
     access_key = os.getenv("AWS_ACCESS_KEY_ID")
@@ -59,7 +57,6 @@ class S3ParquetStorageAdapter(RawStoragePort):
         else:
             self.file_path = "s3://selic-bucket/bronze/selic_raw.parquet"
 
-        # Parse bucket name
         parsed = urllib.parse.urlparse(self.file_path)
         self.bucket_name = parsed.netloc if parsed.netloc else "selic-bucket"
 
@@ -69,7 +66,6 @@ class S3ParquetStorageAdapter(RawStoragePort):
         data = [{"data": r.data, "valor": r.valor} for r in records]
         df = pl.DataFrame(data)
 
-        # Write to S3 using Polars via s3fs file object
         import s3fs
         opts = get_s3_storage_options()
         s3fs_args = {}
@@ -83,6 +79,10 @@ class S3ParquetStorageAdapter(RawStoragePort):
         fs = s3fs.S3FileSystem(**s3fs_args)
         with fs.open(self.file_path, "wb") as f:
             df.write_parquet(f)
+
+        import json
+        json_path = self.file_path.replace(".parquet", ".json")
+        with fs.open(json_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
         return self.file_path
-
-

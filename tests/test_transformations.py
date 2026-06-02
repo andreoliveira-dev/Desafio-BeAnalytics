@@ -7,14 +7,14 @@ from silver.services.transform_service import TransformService
 
 
 def test_silver_transformation_success_and_types():
-    # Arrange
+    
     mock_reader = MagicMock(spec=RawDataReaderPort)
     mock_writer = MagicMock(spec=CleanDataWriterPort)
 
     raw_df = pl.DataFrame([
         {"data": "01/01/2020", "valor": "0.015"},
         {"data": "02/01/2020", "valor": "0.020"},
-        {"data": "02/01/2020", "valor": "0.020"},  # Duplicate
+        {"data": "02/01/2020", "valor": "0.020"},  
     ])
 
     mock_reader.read_raw_data.return_value = raw_df.lazy()
@@ -22,29 +22,29 @@ def test_silver_transformation_success_and_types():
 
     service = TransformService(reader=mock_reader, writer=mock_writer)
 
-    # Act
+    
     output_path = service.execute()
 
-    # Assert
+    
     assert output_path == "data/silver/selic_cleaned.parquet"
     mock_writer.write_clean_data.assert_called_once()
 
     called_df = mock_writer.write_clean_data.call_args[0][0]
 
-    # Verify duplicates are dropped
+    
     assert called_df.height == 2
 
-    # Verify column data types
+    
     assert called_df.schema["data"] == pl.Date
     assert called_df.schema["valor"] == pl.Float64
 
-    # Verify values are correctly converted
+    
     assert called_df["valor"][0] == 0.015
     assert called_df["valor"][1] == 0.020
 
 
 def test_silver_transformation_logs_warnings_for_out_of_bounds_rates(caplog):
-    # Arrange
+   
     mock_reader = MagicMock(spec=RawDataReaderPort)
     mock_writer = MagicMock(spec=CleanDataWriterPort)
 
@@ -59,12 +59,11 @@ def test_silver_transformation_logs_warnings_for_out_of_bounds_rates(caplog):
 
     service = TransformService(reader=mock_reader, writer=mock_writer)
 
-    # Act
+  
     with caplog.at_level(logging.WARNING):
         service.execute()
 
-    # Assert
-    # Verify warning log was emitted
+    
     warnings = [rec.message for rec in caplog.records if rec.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "Data quality warning" in warnings[0]
@@ -73,7 +72,7 @@ def test_silver_transformation_logs_warnings_for_out_of_bounds_rates(caplog):
 
 
 def test_silver_transformation_empty_bronze_raises_error():
-    # Arrange
+   
     mock_reader = MagicMock(spec=RawDataReaderPort)
     mock_writer = MagicMock(spec=CleanDataWriterPort)
 
@@ -81,8 +80,7 @@ def test_silver_transformation_empty_bronze_raises_error():
 
     service = TransformService(reader=mock_reader, writer=mock_writer)
 
-    # Act & Assert
+    
     with pytest.raises(ValueError) as excinfo:
         service.execute()
     assert "Raw data is empty" in str(excinfo.value)
-

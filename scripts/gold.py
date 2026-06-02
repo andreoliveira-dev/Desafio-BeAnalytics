@@ -15,16 +15,23 @@ def run_gold(
 
     storage_type = os.getenv("STORAGE_TYPE", "local").lower()
     if input_path is None:
-        input_path = "s3://selic-bucket/silver/selic_cleaned.parquet" if storage_type == "s3" else "data/silver/selic_cleaned.parquet"
+        input_path = (
+            "s3://selic-bucket/silver/selic_cleaned.parquet"
+            if storage_type == "s3"
+            else "data/silver/selic_cleaned.parquet"
+        )
     if output_path is None:
-        output_path = "s3://selic-bucket/gold/selic_metrics.parquet" if storage_type == "s3" else "data/gold/selic_metrics.parquet"
+        output_path = (
+            "s3://selic-bucket/gold/selic_metrics.parquet"
+            if storage_type == "s3"
+            else "data/gold/selic_metrics.parquet"
+        )
 
     reader = ParquetCleanReaderAdapter(file_path=input_path)
     writer = ParquetMetricsWriterAdapter(file_path=output_path)
     service = AggregateService(reader=reader, writer=writer)
 
     return service.execute()
-
 
 
 if __name__ == "__main__":

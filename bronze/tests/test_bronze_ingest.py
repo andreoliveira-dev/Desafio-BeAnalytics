@@ -6,7 +6,7 @@ from bronze.services.ingest_service import IngestService
 
 
 def test_ingest_service_success():
-    # Arrange
+
     mock_source = MagicMock(spec=SelicSourcePort)
     mock_storage = MagicMock(spec=RawStoragePort)
 
@@ -19,17 +19,15 @@ def test_ingest_service_success():
 
     service = IngestService(source=mock_source, storage=mock_storage)
 
-    # Act
     result = service.execute(start_date="01/01/2020", end_date="31/12/2024")
 
-    # Assert
     assert result == "data/bronze/selic_raw.parquet"
     mock_source.fetch_data.assert_called_once_with("01/01/2020", "31/12/2024")
     mock_storage.save_data.assert_called_once_with(mock_records)
 
 
 def test_ingest_service_empty_data_raises_error():
-    # Arrange
+
     mock_source = MagicMock(spec=SelicSourcePort)
     mock_storage = MagicMock(spec=RawStoragePort)
 
@@ -37,7 +35,6 @@ def test_ingest_service_empty_data_raises_error():
 
     service = IngestService(source=mock_source, storage=mock_storage)
 
-    # Act & Assert
     with pytest.raises(ValueError) as excinfo:
         service.execute(start_date="01/01/2020", end_date="31/12/2024")
 
@@ -46,7 +43,7 @@ def test_ingest_service_empty_data_raises_error():
 
 
 def test_ingest_service_source_error_propagates():
-    # Arrange
+
     mock_source = MagicMock(spec=SelicSourcePort)
     mock_storage = MagicMock(spec=RawStoragePort)
 
@@ -54,7 +51,6 @@ def test_ingest_service_source_error_propagates():
 
     service = IngestService(source=mock_source, storage=mock_storage)
 
-    # Act & Assert
     with pytest.raises(RuntimeError) as excinfo:
         service.execute(start_date="01/01/2020", end_date="31/12/2024")
 
