@@ -13,6 +13,17 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    services:
+      minio:
+        image: minio/minio:latest
+        ports:
+          - 9000:9000
+          - 9001:9001
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: server /data
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -33,8 +44,12 @@ jobs:
         run: |
           flake8 bronze silver gold scripts tests
 
-      - name: Run Unit Tests with Coverage (pytest)
+      - name: Run Unit & Integration Tests with Coverage (pytest)
         env:
           PYTHONPATH: .
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_DEFAULT_REGION: us-east-1
+          S3_ENDPOINT_URL: http://localhost:9000
         run: |
           pytest --cov=bronze --cov=silver --cov=gold --cov-fail-under=80

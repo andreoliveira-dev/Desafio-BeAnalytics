@@ -223,3 +223,19 @@ Para fins de governança de dados, auditoria e facilidade de depuração, é uma
 ### Racional / Benefícios
 - **Linhagem e Auditabilidade**: Garante um registro imutável do exato payload retornado da API externa, de forma que qualquer divergência possa ser investigada a partir dos bits originais sem depender de nova chamada na API do Banco Central.
 - **Eficiência e Prática de Data Lake**: A cópia física de partição demonstra o domínio de arquitetura de Data Lakes on-premise ou cloud, permitindo que motores de consulta eficientes (como Athena, Trino, DuckDB ou o próprio Polars/Spark) leiam somente os caminhos de partição solicitados (partition pruning), cortando drasticamente custos de I/O de disco e rede.
+
+---
+
+## 15. Testes de Integração com S3/MinIO no Pipeline de CI (GitHub Actions)
+
+### Contexto
+O pipeline de dados possui suporte a persistência local e no S3 (MinIO). No entanto, testes locais e unitários rodavam de forma offline mockada. Alterações em chamadas de rede do boto3, autenticação ou especificidades do s3fs e do driver Rust do Polars ao ler de caminhos remotos podiam introduzir regressões invisíveis nos testes offline.
+
+### Decisão
+1. **MinIO Efêmero no GitHub Actions**: Adicionamos o serviço `minio/minio:latest` ao workflow `.github/workflows/ci-cd-pipeline.yml` para subir um servidor de Object Storage S3 compatível durante a execução das esteiras de CI.
+2. **Suíte de Integração S3 Dedicada**: Criamos o arquivo `tests/test_s3_integration.py` que executa testes ponta a ponta simulando as três camadas (Bronze, Silver e Gold) gravando e lendo do MinIO real via s3fs e Polars.
+3. **Execução Condicional Eficiente**: Os testes de S3 utilizam uma marcação de skip automático caso a variável `S3_ENDPOINT_URL` não esteja acessível (evitando quebras no pytest rodado localmente offline pelos desenvolvedores), mas rodam obrigatoriamente na esteira de CI que configura essas variáveis no ambiente.
+
+### Racional / Benefícios
+- **Validação Efetiva de Infraestrutura Cloud-Native**: Assegura que a compatibilidade entre a biblioteca s3fs de Python, o cliente boto3 e o motor Rust do Polars está saudável e consegue interagir de forma real com a API S3, elevando a confiança antes do merge em produção.
+- **Desenvolvimento Local Preservado**: A verificação de acessibilidade da porta do MinIO faz com que os testes de integração se adaptem ao ambiente do desenvolvedor sem impor a obrigação de ter um container MinIO ativo na máquina pessoal para rodar a suíte local.
