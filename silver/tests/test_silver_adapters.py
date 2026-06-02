@@ -1,6 +1,6 @@
 import os
 import pytest
-import pandas as pd
+import polars as pl
 from silver.adapters.parquet_reader_adapter import ParquetRawReaderAdapter
 from silver.adapters.parquet_writer_adapter import ParquetCleanWriterAdapter
 
@@ -19,7 +19,7 @@ def test_parquet_clean_writer_and_reader_success(tmp_path):
     temp_dir = tmp_path / "data" / "silver"
     writer = ParquetCleanWriterAdapter(output_dir=str(temp_dir))
 
-    df = pd.DataFrame([
+    df = pl.DataFrame([
         {"data": "2020-01-02", "valor": 0.017089},
         {"data": "2020-01-03", "valor": 0.017090}
     ])
@@ -32,9 +32,10 @@ def test_parquet_clean_writer_and_reader_success(tmp_path):
 
     # Verify reading using reader
     reader = ParquetRawReaderAdapter(file_path=output_path)
-    read_df = reader.read_raw_data()
+    read_df = reader.read_raw_data().collect()
 
-    assert len(read_df) == 2
+    assert read_df.height == 2
     assert list(read_df.columns) == ["data", "valor"]
-    assert read_df.iloc[0]["data"] == "2020-01-02"
-    assert read_df.iloc[0]["valor"] == pytest.approx(0.017089)
+    assert read_df["data"][0] == "2020-01-02"
+    assert read_df["valor"][0] == pytest.approx(0.017089)
+

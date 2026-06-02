@@ -16,6 +16,18 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
 }
 
+import os
+
+storage_type = os.getenv("STORAGE_TYPE", "local").lower()
+if storage_type == "s3":
+    bronze_path = "s3://selic-bucket/bronze/selic_raw.parquet"
+    silver_path = "s3://selic-bucket/silver/selic_cleaned.parquet"
+    gold_path = "s3://selic-bucket/gold/selic_metrics.parquet"
+else:
+    bronze_path = "data/bronze/selic_raw.parquet"
+    silver_path = "data/silver/selic_cleaned.parquet"
+    gold_path = "data/gold/selic_metrics.parquet"
+
 with DAG(
     "dag_selic_medallion",
     default_args=default_args,
@@ -30,7 +42,7 @@ with DAG(
         op_kwargs={
             "start_date": "01/01/2020",
             "end_date": "31/12/2024",
-            "output_path": "data/bronze/selic_raw.parquet"
+            "output_path": bronze_path
         }
     )
 
@@ -38,8 +50,8 @@ with DAG(
         task_id="transform_silver",
         python_callable=run_silver,
         op_kwargs={
-            "input_path": "data/bronze/selic_raw.parquet",
-            "output_path": "data/silver/selic_cleaned.parquet"
+            "input_path": bronze_path,
+            "output_path": silver_path
         }
     )
 
@@ -47,9 +59,10 @@ with DAG(
         task_id="aggregate_gold",
         python_callable=run_gold,
         op_kwargs={
-            "input_path": "data/silver/selic_cleaned.parquet",
-            "output_path": "data/gold/selic_metrics.parquet"
+            "input_path": silver_path,
+            "output_path": gold_path
         }
     )
+
 
     ingest_bronze >> transform_silver >> aggregate_gold

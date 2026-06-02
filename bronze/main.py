@@ -7,12 +7,21 @@ from bronze.services.ingest_service import IngestService
 def run(start_date: str = "01/01/2020", end_date: str = "31/12/2024") -> str:
     print(f"Starting Bronze Ingestion for period: {start_date} to {end_date}")
 
+    import os
     from bronze.adapters.circuit_breaker_state_adapter import SqlCircuitBreakerStateAdapter
 
     state_adapter = SqlCircuitBreakerStateAdapter()
     source = BcbApiAdapter(state_port=state_adapter)
-    storage = LocalParquetStorageAdapter()
+
+    storage_type = os.getenv("STORAGE_TYPE", "local").lower()
+    if storage_type == "s3":
+        from bronze.adapters.s3_storage_adapter import S3ParquetStorageAdapter
+        storage = S3ParquetStorageAdapter()
+    else:
+        storage = LocalParquetStorageAdapter()
+
     service = IngestService(source=source, storage=storage)
+
 
     try:
         output_path = service.execute(start_date, end_date)

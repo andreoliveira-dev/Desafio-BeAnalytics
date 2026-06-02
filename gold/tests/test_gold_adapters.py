@@ -1,6 +1,6 @@
 import os
 import pytest
-import pandas as pd
+import polars as pl
 from gold.adapters.parquet_reader_adapter import ParquetCleanReaderAdapter
 from gold.adapters.parquet_writer_adapter import ParquetMetricsWriterAdapter
 
@@ -19,7 +19,7 @@ def test_parquet_metrics_writer_and_reader_success(tmp_path):
     temp_dir = tmp_path / "data" / "gold"
     writer = ParquetMetricsWriterAdapter(output_dir=str(temp_dir))
 
-    metrics_df = pd.DataFrame([
+    metrics_df = pl.DataFrame([
         {"ano": 2020, "mes": 1, "media_mensal": 0.15, "desvio_padrao_mensal": 0.05,
          "variacao_mensal": 0.0, "taxa_acumulada_anual": 4.5}
     ])
@@ -32,6 +32,7 @@ def test_parquet_metrics_writer_and_reader_success(tmp_path):
 
     # Verify reading using reader
     reader = ParquetCleanReaderAdapter(file_path=saved_path)
-    read_metrics_df = reader.read_clean_data()
-    assert len(read_metrics_df) == 1
-    assert read_metrics_df.iloc[0]["media_mensal"] == pytest.approx(0.15)
+    read_metrics_df = reader.read_clean_data().collect()
+    assert read_metrics_df.height == 1
+    assert read_metrics_df["media_mensal"][0] == pytest.approx(0.15)
+

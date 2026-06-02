@@ -6,15 +6,15 @@ O projeto foi projetado e construído seguindo princípios rigorosos de **Clean 
 
 ---
 
-## Arquitetura de Dados (Medallion & Ports and Adapters)
+## Arquitetura de Dados (Medallion, Ports & Adapters com Polars & MinIO)
 
-O pipeline de dados está dividido em três camadas lógicas independentes (Bronze, Silver e Gold), isoladas em pacotes Python modulares. Cada pacote possui fronteiras bem delimitadas através de portas (interfaces) e adaptadores (infraestrutura).
+O pipeline de dados está dividido em três camadas lógicas independentes (Bronze, Silver e Gold), isoladas em pacotes Python modulares. Cada pacote possui fronteiras bem delimitadas através de portas (interfaces) e adaptadores (infraestrutura), suportando armazenamento local ou Object Storage S3 (MinIO) de forma transparente.
 
 ```mermaid
 graph TD
-    API([API BCB - SGS 11]) -->|Ingestão & Resiliência - bronze/| B_Stg[(data/bronze/selic_raw.parquet)]
-    B_Stg -->|Limpeza & Tipagem - silver/| S_Stg[(data/silver/selic_cleaned.parquet)]
-    S_Stg -->|Métricas & Agregações - gold/| G_Stg[(data/gold/selic_metrics.parquet)]
+    API([API BCB - SGS 11]) -->|Ingestão & Resiliência - bronze/| B_Stg[(S3 ou Local: selic_raw.parquet)]
+    B_Stg -->|Polars Lazy API & Streaming - silver/| S_Stg[(S3 ou Local: selic_cleaned.parquet)]
+    S_Stg -->|Polars Agregações Vetorizadas - gold/| G_Stg[(S3 ou Local: selic_metrics.parquet)]
 
     subgraph Airflow DAG [Orquestração Airflow]
         T1[Task 1: Ingestão Bronze] --> T2[Task 2: Transformação Silver]
@@ -22,34 +22,35 @@ graph TD
     end
 ```
 
-### Detalhamento Técnico das Camadas
+### Detalhamento Técnico das Camadas (Processamento com Polars Lazy API)
 
 1. **Bronze (Ingestion)**:
    - **Responsabilidade**: Consumir dados brutos da API SGS.
    - **Mecanismos de Resiliência Ativa**:
      - **Exponential Backoff**: Tenta realizar até 3 chamadas com delays crescentes ($2^{\text{tentativa}}$) se a API retornar instabilidade de rede ou erros 5xx.
      - **Circuit Breaker**: Previne sobrecarga e falhas repetidas. Se ocorrerem 5 falhas consecutivas, o circuito abre por **60 segundos**, negando qualquer nova chamada imediatamente (`CircuitBreakerOpenError`) sem consumir recursos de rede.
-   - **Persistência**: Parquet (`data/bronze/selic_raw.parquet`).
+   - **Persistência**: Parquet (`data/bronze/selic_raw.parquet` ou `s3://selic-bucket/bronze/selic_raw.parquet`).
 
 2. **Silver (Transformation)**:
-   - **Responsabilidade**: Sanitização e padronização.
+   - **Responsabilidade**: Sanitização e padronização rápida utilizando **Polars LazyFrame**.
    - **Transformações**:
-     - Conversão de `data` para tipo nativo de data (`datetime64[ns]`).
-     - Conversão de `valor` (taxa percentual diária) para numérico (`float64`).
-     - Exclusão de duplicidades temporais e registros nulos (`dropna`, `drop_duplicates`).
+     - Conversão de `data` para tipo nativo de data (`Date`).
+     - Conversão de `valor` (taxa percentual diária) para numérico (`Float64`).
+     - Exclusão de duplicidades temporais e registros nulos (`drop_nulls`, `unique`).
      - Ordenação cronológica estrita.
+   - **Performance**: Executado em modo lazy com streaming (`streaming=True` no `collect()`) para otimização de plano física e memória.
    - **Quality Gates**: Emissão de alertas (`warnings`) no log caso as taxas diárias estejam fora de limites normais de mercado (ex: negativas ou acima de 1,0% ao dia).
-   - **Persistência**: Parquet (`data/silver/selic_cleaned.parquet`).
+   - **Persistência**: Parquet (`data/silver/selic_cleaned.parquet` ou `s3://selic-bucket/silver/selic_cleaned.parquet`).
 
 3. **Gold (Analytics & Aggregation)**:
-   - **Responsabilidade**: Agregações analíticas e consolidação de métricas.
+   - **Responsabilidade**: Agregações analíticas e consolidação de métricas via **Polars Lazy API**.
    - **Métricas**:
      - `media_mensal` e `desvio_padrao_mensal` (volatilidade).
-     - `variacao_mensal` (comparativo percentual em relação ao mês anterior).
-     - `taxa_acumulada_anual`: Juros compostos calculados pela fórmula de acumulação oficial do Banco Central:
+     - `variacao_mensal` (comparativo percentual em relação ao mês anterior via expressões de janela do Polars).
+     - `taxa_acumulada_anual`: Juros compostos calculados por expressões vetorizadas rápidas do Polars:
        $$\text{Taxa Acumulada (\%)} = \left[ \prod_{i=1}^{N} \left(1 + \frac{\text{taxa}_i}{100}\right) - 1 \right] \times 100$$
    - **Quality Gates**: Rejeita saídas com métricas nulas e valida se a média mensal está dentro da amplitude de normalidade econômica real (0% a 50% mensal).
-   - **Persistência**: Parquet consolidado (`data/gold/selic_metrics.parquet`) contendo as métricas de granularidade mensal e anual unificadas.
+   - **Persistência**: Parquet consolidado (`data/gold/selic_metrics.parquet` ou `s3://selic-bucket/gold/selic_metrics.parquet`) contendo as métricas de granularidade mensal e anual unificadas.
 
 ---
 
@@ -82,17 +83,23 @@ Todas as variáveis sensíveis, credenciais de banco e parametrizações do Airf
 
 AIRFLOW_UID=1000
 
-
 POSTGRES_USER=airflow
 POSTGRES_PASSWORD=airflow_secure_password
 POSTGRES_DB=airflow
 AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow_secure_password@postgres/airflow
 
-
 AIRFLOW_ADMIN_USER=admin
 AIRFLOW_ADMIN_PASSWORD=admin
 AIRFLOW_ADMIN_EMAIL=admin@beanalytic.com.br
+
+# Armazenamento: local ou s3
+STORAGE_TYPE=s3
+S3_ENDPOINT_URL=http://localhost:9000
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+AWS_DEFAULT_REGION=us-east-1
 ```
+
 
 ---
 

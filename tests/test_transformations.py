@@ -1,6 +1,6 @@
 import pytest
 import logging
-import pandas as pd
+import polars as pl
 from unittest.mock import MagicMock
 from silver.ports.output_ports import RawDataReaderPort, CleanDataWriterPort
 from silver.services.transform_service import TransformService
@@ -11,13 +11,13 @@ def test_silver_transformation_success_and_types():
     mock_reader = MagicMock(spec=RawDataReaderPort)
     mock_writer = MagicMock(spec=CleanDataWriterPort)
 
-    raw_df = pd.DataFrame([
+    raw_df = pl.DataFrame([
         {"data": "01/01/2020", "valor": "0.015"},
         {"data": "02/01/2020", "valor": "0.020"},
         {"data": "02/01/2020", "valor": "0.020"},  # Duplicate
     ])
 
-    mock_reader.read_raw_data.return_value = raw_df
+    mock_reader.read_raw_data.return_value = raw_df.lazy()
     mock_writer.write_clean_data.side_effect = lambda df: "data/silver/selic_cleaned.parquet"
 
     service = TransformService(reader=mock_reader, writer=mock_writer)
@@ -32,15 +32,15 @@ def test_silver_transformation_success_and_types():
     called_df = mock_writer.write_clean_data.call_args[0][0]
 
     # Verify duplicates are dropped
-    assert len(called_df) == 2
+    assert called_df.height == 2
 
     # Verify column data types
-    assert pd.api.types.is_datetime64_any_dtype(called_df["data"])
-    assert pd.api.types.is_float_dtype(called_df["valor"])
+    assert called_df.schema["data"] == pl.Date
+    assert called_df.schema["valor"] == pl.Float64
 
     # Verify values are correctly converted
-    assert called_df.iloc[0]["valor"] == 0.015
-    assert called_df.iloc[1]["valor"] == 0.020
+    assert called_df["valor"][0] == 0.015
+    assert called_df["valor"][1] == 0.020
 
 
 def test_silver_transformation_logs_warnings_for_out_of_bounds_rates(caplog):
@@ -48,13 +48,13 @@ def test_silver_transformation_logs_warnings_for_out_of_bounds_rates(caplog):
     mock_reader = MagicMock(spec=RawDataReaderPort)
     mock_writer = MagicMock(spec=CleanDataWriterPort)
 
-    raw_df = pd.DataFrame([
+    raw_df = pl.DataFrame([
         {"data": "01/01/2020", "valor": "0.015"},
         {"data": "02/01/2020", "valor": "-0.005"},
         {"data": "03/01/2020", "valor": "1.05"},
     ])
 
-    mock_reader.read_raw_data.return_value = raw_df
+    mock_reader.read_raw_data.return_value = raw_df.lazy()
     mock_writer.write_clean_data.side_effect = lambda df: "data/silver/selic_cleaned.parquet"
 
     service = TransformService(reader=mock_reader, writer=mock_writer)
@@ -77,7 +77,7 @@ def test_silver_transformation_empty_bronze_raises_error():
     mock_reader = MagicMock(spec=RawDataReaderPort)
     mock_writer = MagicMock(spec=CleanDataWriterPort)
 
-    mock_reader.read_raw_data.return_value = pd.DataFrame([])
+    mock_reader.read_raw_data.return_value = pl.DataFrame([]).lazy()
 
     service = TransformService(reader=mock_reader, writer=mock_writer)
 
@@ -85,3 +85,4 @@ def test_silver_transformation_empty_bronze_raises_error():
     with pytest.raises(ValueError) as excinfo:
         service.execute()
     assert "Raw data is empty" in str(excinfo.value)
+

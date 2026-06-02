@@ -175,3 +175,35 @@ Implementamos um modelo persistente e minimalista para armazenamento do estado d
 - **Custo Operacional Zero**: Aproveita o banco de dados PostgreSQL existente que já roda como banco de metadados do Airflow, eliminando a necessidade de implantar, monitorar e licenciar serviços novos (como Redis ou NATS) em infraestruturas privadas on-premise.
 - **Stateful de Verdade**: O estado do Circuit Breaker passa a ser compartilhado de forma persistente e persistente entre qualquer tarefa ou processo que o chame no ecossistema, sobrevivendo ao encerramento dos containers do Airflow.
 - **Portabilidade**: O auto-criar da tabela (`metadata.create_all`) garante que o setup do banco de dados ocorra de forma transparente na primeira chamada do pipeline, sem necessidade de migrations manuais.
+
+---
+
+## 12. Migração de Pandas para Polars (Lazy API & Streaming)
+
+### Contexto
+O pipeline de dados original utilizava a biblioteca **Pandas** para processar e manipular dados. Pandas é focado em processamento em memória de forma eagerly (avaliação imediata) e de thread única, o que impõe limitações físicas severas de escala e performance ao lidar com volumes massivos de dados típicos de Big Data.
+
+### Decisão
+Migramos toda a lógica de manipulação e transformação de dados nas camadas Bronze, Silver e Gold para **Polars**, utilizando a **Lazy API** (`LazyFrame`) e habilitando o modo de streaming (`streaming=True`) na coleta final dos dados (`collect`).
+
+### Racional / Benefícios
+- **Otimização de Consultas (Lazy API)**: Polars constrói um grafo de execução lógica (query plan) que otimiza automaticamente operações como predicados (filter pushdown) e projeções (projection pushdown) antes de iniciar a computação, reduzindo o volume de dados carregados e processados.
+- **Processamento Além da Memória (Out-of-Core/Streaming)**: Ao habilitar `streaming=True`, o Polars divide o processamento dos dados em chunks processados em paralelo de forma eficiente, permitindo que pipelines de dados rodem de forma robusta em datasets muito maiores que a RAM física disponível na máquina executora.
+- **Performance Multithreaded Nativa**: Desenvolvido em Rust e utilizando Apache Arrow como formato de memória, o Polars aproveita ao máximo todos os núcleos de CPU disponíveis, superando o gargalo de thread única do Pandas.
+
+---
+
+## 13. Integração com Nuvem e MinIO (Object Storage S3-compatível) com Seleção Dinâmica
+
+### Contexto
+Originalmente, a persistência de dados do pipeline estava restrita ao sistema de arquivos local (`data/`). Para habilitar o pipeline a operar em ambientes de produção modernos baseados em nuvem (ou on-premise Kubernetes/Private Cloud), era preciso demonstrar suporte a Object Storage robusto compatível com a API do AWS S3.
+
+### Decisão
+- Desenvolvemos adaptadores baseados em S3 (`S3ParquetStorageAdapter`, etc.) utilizando a biblioteca `s3fs` e adicionamos suporte a buckets remotos nas leituras com Polars.
+- Habilitamos seleção de armazenamento dinâmico via variável de ambiente `STORAGE_TYPE` (configurando caminhos `s3://` versus caminhos locais e buckets correspondentes de forma transparente).
+- Fornecemos um contêiner MinIO no `docker-compose.yaml` local para simular o ambiente de nuvem de forma offline e reprodutível.
+
+### Racional / Benefícios
+- **Conformidade em Ambientes de Produção Cloud-Native**: A mesma base de código pode ser executada localmente no disco rígido do desenvolvedor (ou ambientes de testes simples) ou apontada para um bucket de produção no AWS S3, Google Cloud Storage, ou cluster MinIO on-premise apenas trocando variáveis de ambiente.
+- **Resolução de Compatibilidade de Protocolo**: Configuramos parâmetros de conexão planos (`aws_access_key_id`, `aws_secret_access_key`, `endpoint_url` e `aws_region`) para alimentar diretamente o backend em Rust do Polars, assegurando performance nativa de rede na leitura/escrita de arquivos remotos sem gargalos de serialização.
+

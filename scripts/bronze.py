@@ -14,18 +14,27 @@ def run_bronze(
     from bronze.adapters.parquet_storage_adapter import LocalParquetStorageAdapter
     from bronze.services.ingest_service import IngestService
 
-    output_dir = os.path.dirname(output_path)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
+    if not output_path.startswith("s3://"):
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
 
     from bronze.adapters.circuit_breaker_state_adapter import SqlCircuitBreakerStateAdapter
 
     state_adapter = SqlCircuitBreakerStateAdapter()
     source = BcbApiAdapter(state_port=state_adapter)
-    storage = LocalParquetStorageAdapter(file_path=output_path)
+
+    storage_type = os.getenv("STORAGE_TYPE", "local").lower()
+    if storage_type == "s3" or output_path.startswith("s3://"):
+        from bronze.adapters.s3_storage_adapter import S3ParquetStorageAdapter
+        storage = S3ParquetStorageAdapter(file_path=output_path)
+    else:
+        storage = LocalParquetStorageAdapter(file_path=output_path)
+
     service = IngestService(source=source, storage=storage)
 
     return service.execute(start_date, end_date)
+
 
 
 if __name__ == "__main__":

@@ -5,9 +5,17 @@ from gold.services.aggregate_service import AggregateService
 
 
 def run(
-    input_path: str = "data/silver/selic_cleaned.parquet",
-    output_path: str = "data/gold/selic_metrics.parquet"
+    input_path: str = None,
+    output_path: str = None
 ) -> str:
+    import os
+    storage_type = os.getenv("STORAGE_TYPE", "local").lower()
+
+    if input_path is None:
+        input_path = "s3://selic-bucket/silver/selic_cleaned.parquet" if storage_type == "s3" else "data/silver/selic_cleaned.parquet"
+    if output_path is None:
+        output_path = "s3://selic-bucket/gold/selic_metrics.parquet" if storage_type == "s3" else "data/gold/selic_metrics.parquet"
+
     print(f"Starting Gold Aggregation. Input clean: {input_path}")
 
     reader = ParquetCleanReaderAdapter(file_path=input_path)
@@ -25,6 +33,7 @@ def run(
 
 
 if __name__ == "__main__":
-    in_path = sys.argv[1] if len(sys.argv) > 1 else "data/silver/selic_cleaned.parquet"
-    out_path = sys.argv[2] if len(sys.argv) > 2 else "data/gold/selic_metrics.parquet"
+    in_path = sys.argv[1] if len(sys.argv) > 1 else None
+    out_path = sys.argv[2] if len(sys.argv) > 2 else None
     run(in_path, out_path)
+

@@ -1,6 +1,6 @@
 import os
 from typing import List
-import pandas as pd
+import polars as pl
 from bronze.ports.output_ports import RawStoragePort
 from bronze.domain.models import SelicRawRecord
 
@@ -19,8 +19,9 @@ class LocalParquetStorageAdapter(RawStoragePort):
 
         # Convert list of dataclasses to DataFrame
         data = [{"data": r.data, "valor": r.valor} for r in records]
-        df = pd.DataFrame(data)
+        df = pl.DataFrame(data)
 
         # Save to Parquet
-        df.to_parquet(self.file_path, index=False)
+        df.write_parquet(self.file_path)
         return self.file_path
+
