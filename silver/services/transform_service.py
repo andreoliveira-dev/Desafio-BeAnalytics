@@ -10,7 +10,7 @@ class TransformService(TransformUseCase):
         self.writer = writer
 
     def execute(self) -> str:
-        
+
         df_lazy = self.reader.read_raw_data()
 
         try:
