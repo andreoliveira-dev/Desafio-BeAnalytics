@@ -18,7 +18,10 @@ def run_bronze(
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
-    source = BcbApiAdapter()
+    from bronze.adapters.circuit_breaker_state_adapter import SqlCircuitBreakerStateAdapter
+
+    state_adapter = SqlCircuitBreakerStateAdapter()
+    source = BcbApiAdapter(state_port=state_adapter)
     storage = LocalParquetStorageAdapter(file_path=output_path)
     service = IngestService(source=source, storage=storage)
 

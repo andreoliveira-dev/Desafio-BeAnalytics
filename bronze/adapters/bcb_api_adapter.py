@@ -1,7 +1,7 @@
 import time
 import requests
 from typing import List
-from bronze.ports.output_ports import SelicSourcePort
+from bronze.ports.output_ports import SelicSourcePort, CircuitBreakerStatePort
 from bronze.domain.models import SelicRawRecord
 
 
@@ -21,11 +21,14 @@ class BcbApiAdapter(SelicSourcePort):
         self,
         base_url: str = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.11/dados",
         backoff_factor: float = 1.0,
-        max_retries: int = 3
+        max_retries: int = 3,
+        state_port: CircuitBreakerStatePort = None
     ):
         self.base_url = base_url
         self.backoff_factor = backoff_factor
         self.max_retries = max_retries
+        self.state_port = state_port
+        self.name = "bcb_api"
 
     @classmethod
     def _reset_circuit_state_for_tests(cls):
@@ -33,25 +36,43 @@ class BcbApiAdapter(SelicSourcePort):
         cls._last_failure_time = 0.0
         cls._state = "CLOSED"
 
-    @classmethod
-    def _check_circuit(cls):
-        if cls._state == "OPEN":
-            if time.time() - cls._last_failure_time > cls.COOLDOWN_PERIOD:
-                cls._state = "HALF-OPEN"
+    def _check_circuit(self):
+        if self.state_port:
+            state_data = self.state_port.get_state(self.name)
+            state = state_data["state"]
+            last_failure_time = state_data["last_failure_time"]
+        else:
+            state = self._state
+            last_failure_time = self._last_failure_time
+
+        if state == "OPEN":
+            if time.time() - last_failure_time > self.COOLDOWN_PERIOD:
+                if self.state_port:
+                    self.state_port.update_state(self.name, "HALF-OPEN", 0, 0.0)
+                else:
+                    self.__class__._state = "HALF-OPEN"
             else:
                 raise CircuitBreakerOpenError("Circuit is OPEN. Requests temporarily blocked.")
 
-    @classmethod
-    def _record_success(cls):
-        cls._failure_count = 0
-        cls._state = "CLOSED"
+    def _record_success(self):
+        if self.state_port:
+            self.state_port.update_state(self.name, "CLOSED", 0, 0.0)
+        else:
+            self.__class__._failure_count = 0
+            self.__class__._state = "CLOSED"
 
-    @classmethod
-    def _record_failure(cls):
-        cls._failure_count += 1
-        cls._last_failure_time = time.time()
-        if cls._failure_count >= cls.FAILURE_THRESHOLD:
-            cls._state = "OPEN"
+    def _record_failure(self):
+        if self.state_port:
+            state_data = self.state_port.get_state(self.name)
+            failures = state_data["failure_count"] + 1
+            last_failure_time = time.time()
+            state = "OPEN" if failures >= self.FAILURE_THRESHOLD else state_data["state"]
+            self.state_port.update_state(self.name, state, failures, last_failure_time)
+        else:
+            self.__class__._failure_count += 1
+            self.__class__._last_failure_time = time.time()
+            if self.__class__._failure_count >= self.FAILURE_THRESHOLD:
+                self.__class__._state = "OPEN"
 
     def fetch_data(self, start_date: str, end_date: str) -> List[SelicRawRecord]:
         self._check_circuit()
