@@ -102,3 +102,43 @@ def test_local_parquet_storage_adapter_save_success(tmp_path):
     assert list(df.columns) == ["data", "valor"]
     assert df.iloc[0]["data"] == "02/01/2020"
     assert df.iloc[0]["valor"] == "0.017089"
+
+
+def test_sql_circuit_breaker_state_adapter():
+    from bronze.adapters.circuit_breaker_state_adapter import SqlCircuitBreakerStateAdapter
+
+    # Use in-memory SQLite for testing
+    adapter = SqlCircuitBreakerStateAdapter(connection_string="sqlite:///:memory:")
+
+    # Initial state
+    state = adapter.get_state("test_breaker")
+    assert state == {"state": "CLOSED", "failure_count": 0, "last_failure_time": 0.0}
+
+    # Update state
+    adapter.update_state("test_breaker", "OPEN", 5, 123.45)
+    state = adapter.get_state("test_breaker")
+    assert state == {"state": "OPEN", "failure_count": 5, "last_failure_time": 123.45}
+
+
+def test_bcb_api_adapter_circuit_breaker_with_sql_adapter():
+    from bronze.adapters.circuit_breaker_state_adapter import SqlCircuitBreakerStateAdapter
+    from bronze.adapters.bcb_api_adapter import CircuitBreakerOpenError
+
+    state_adapter = SqlCircuitBreakerStateAdapter(connection_string="sqlite:///:memory:")
+    api_adapter = BcbApiAdapter(backoff_factor=0.0, max_retries=1, state_port=state_adapter)
+
+    # Fail 5 times to open the circuit in the DB
+    with patch("requests.get", side_effect=Exception("API Error")):
+        for _ in range(5):
+            with pytest.raises(RuntimeError):
+                api_adapter.fetch_data("01/01/2020", "31/12/2024")
+
+    # DB state should be OPEN
+    assert state_adapter.get_state("bcb_api")["state"] == "OPEN"
+    assert state_adapter.get_state("bcb_api")["failure_count"] == 5
+
+    # 6th request fails immediately with CircuitBreakerOpenError
+    with patch("requests.get") as mock_get:
+        with pytest.raises(CircuitBreakerOpenError):
+            api_adapter.fetch_data("01/01/2020", "31/12/2024")
+        mock_get.assert_not_called()

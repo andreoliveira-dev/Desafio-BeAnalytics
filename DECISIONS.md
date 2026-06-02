@@ -155,3 +155,23 @@ O Apache Airflow 2.6.3 foi projetado e homologado para a biblioteca `pendulum` n
 
 ### Racional / Benefícios
 - **Consistência de Ambiente**: Garante estabilidade nos fluxos locais, containers e esteira de CI/CD, eliminando quebras silenciosas por atualização de pacotes terceiros.
+
+---
+
+## 11. Persistência de Estado do Circuit Breaker em Banco Relacional (PostgreSQL / SQLite)
+
+### Contexto
+O Circuit Breaker padrão armazena seu estado em variáveis de classe em memória (`stateless`). Em ambientes de produção reais com Airflow (como `LocalExecutor` ou `KubernetesExecutor`), as tarefas rodam em processos isolados e efêmeros, fazendo com que o estado do Circuit Breaker seja perdido entre execuções ou entre tarefas diferentes. Para instalações on-premise, adicionar novos serviços de cache distribuído (como Redis ou NATS) acrescenta custo operacional de manutenção e riscos de compliance/licenciamento.
+
+### Decisão
+Implementamos um modelo persistente e minimalista para armazenamento do estado do Circuit Breaker:
+1. **Nova Porta de Saída (`CircuitBreakerStatePort`)**: Abstrai as operações de leitura (`get_state`) e escrita (`update_state`) do estado do disjuntor.
+2. **Adaptador SQL (`SqlCircuitBreakerStateAdapter`)**: Implementação concreta usando **SQLAlchemy** que cria automaticamente e gerencia a tabela `circuit_breaker_states` no banco relacional.
+   - **PostgreSQL (Produção)**: Conecta-se automaticamente ao banco metastore do Airflow utilizando a conexão `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` já presente no container.
+   - **SQLite (Fallback Local/Testes)**: Caso a conexão do Airflow não esteja disponível (execuções locais ou testes unitários offline), ele faz fallback automático para um arquivo SQLite local sob `data/circuit_breaker.db` (ou `:memory:` para testes isolados).
+3. **Adaptador In-Memory (`InMemoryCircuitBreakerStateAdapter`)**: Mantido para testes de unidade rápidos e retrocompatibilidade de execução offline.
+
+### Racional / Benefícios
+- **Custo Operacional Zero**: Aproveita o banco de dados PostgreSQL existente que já roda como banco de metadados do Airflow, eliminando a necessidade de implantar, monitorar e licenciar serviços novos (como Redis ou NATS) em infraestruturas privadas on-premise.
+- **Stateful de Verdade**: O estado do Circuit Breaker passa a ser compartilhado de forma persistente e persistente entre qualquer tarefa ou processo que o chame no ecossistema, sobrevivendo ao encerramento dos containers do Airflow.
+- **Portabilidade**: O auto-criar da tabela (`metadata.create_all`) garante que o setup do banco de dados ocorra de forma transparente na primeira chamada do pipeline, sem necessidade de migrations manuais.
